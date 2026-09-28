@@ -145,8 +145,25 @@ body {
     animation: speaker-rubber 660ms ease-in-out infinite;
 }
 
+#announcement-speaker.speaker-glow {
+    animation: announcement-speaker-pulse 2.2s ease-in-out infinite;
+}
+
+#announcement-speaker.is-announcing.speaker-glow {
+    animation: speaker-rubber 660ms ease-in-out infinite, announcement-speaker-pulse 2.2s ease-in-out infinite;
+}
+
 #announcement-speaker.is-announcing img:last-child {
     animation: speaker-sound 440ms steps(1, end) infinite;
+}
+
+@keyframes announcement-speaker-pulse {
+    0%, 100% {
+        filter: drop-shadow(0 5px 4px rgba(20, 45, 74, 0.28)) drop-shadow(0 0 5px rgba(251, 191, 36, 0.45)) drop-shadow(0 0 10px rgba(245, 158, 11, 0.2));
+    }
+    50% {
+        filter: drop-shadow(0 5px 4px rgba(20, 45, 74, 0.28)) drop-shadow(0 0 12px rgba(251, 191, 36, 0.85)) drop-shadow(0 0 20px rgba(253, 224, 71, 0.5));
+    }
 }
 
 @keyframes speaker-sound {
@@ -375,6 +392,32 @@ body {
 .cel-play-button:hover,
 #btn-home-return:hover {
     filter: brightness(1.07) saturate(1.08);
+}
+
+/* Speaker Repeat Button Subtle Hint Glow */
+#btn-speaker.btn-speaker-glow {
+    overflow: visible;
+}
+
+#btn-speaker.btn-speaker-glow::after {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: 9999px;
+    pointer-events: none;
+    z-index: -1;
+    animation: speaker-hint-pulse 2.2s ease-in-out infinite;
+}
+
+@keyframes speaker-hint-pulse {
+    0%, 100% {
+        box-shadow: 0 0 6px 2px rgba(251, 191, 36, 0.4), 0 0 12px 3px rgba(245, 158, 11, 0.2);
+        opacity: 0.65;
+    }
+    50% {
+        box-shadow: 0 0 14px 6px rgba(251, 191, 36, 0.85), 0 0 24px 9px rgba(253, 224, 71, 0.45);
+        opacity: 0.95;
+    }
 }
 
 /* Particle Overlay Canvas */

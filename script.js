@@ -85,6 +85,43 @@ function animateSpeaker(text) {
     speakerAnimationTimer = setTimeout(stopSpeakerAnimation, duration);
 }
 
+let speakerGlowTimer = null;
+
+function stopSpeakerGlow() {
+    if (speakerGlowTimer) {
+        clearTimeout(speakerGlowTimer);
+        speakerGlowTimer = null;
+    }
+    const speakerBtn = document.getElementById('btn-speaker');
+    if (speakerBtn) {
+        speakerBtn.classList.remove('btn-speaker-glow');
+    }
+    const annSpeaker = document.getElementById('announcement-speaker');
+    if (annSpeaker) {
+        annSpeaker.classList.remove('speaker-glow');
+    }
+}
+
+function scheduleSpeakerGlow(delayMs = 3000) {
+    stopSpeakerGlow();
+    if (!state.isPlaying) return;
+    speakerGlowTimer = setTimeout(() => {
+        speakerGlowTimer = null;
+        if (!state.isPlaying) return;
+        if (state.roundPops >= state.maxRoundPops) return;
+        const celebrationModal = document.getElementById('modal-celebration');
+        if (celebrationModal && !celebrationModal.classList.contains('hidden')) return;
+        const speakerBtn = document.getElementById('btn-speaker');
+        if (speakerBtn) {
+            speakerBtn.classList.add('btn-speaker-glow');
+        }
+        const annSpeaker = document.getElementById('announcement-speaker');
+        if (annSpeaker) {
+            annSpeaker.classList.add('speaker-glow');
+        }
+    }, delayMs);
+}
+
 function announceQuestion(isRepeat = false) {
     if (!state.isPlaying || !state.currentQuestion) return;
 
@@ -111,6 +148,10 @@ function announceQuestion(isRepeat = false) {
         currentTtsPurpose = 'announcement';
         animateSpeaker(state.currentQuestion.speechText);
     }
+
+    if (!isRepeat) {
+        scheduleSpeakerGlow(3000);
+    }
 }
 
 function stopSpeechFeedback() {
@@ -130,6 +171,33 @@ function stopSpeechFeedback() {
     }
 }
 
+// Preloaded audio element pool to eliminate delay when playing Sparky voice clips
+const dialogueAudioCache = new Map();
+
+function preloadDialogueAudios() {
+    const dialogues = GAME_CONFIG.feedback?.audioDialogues;
+    if (!dialogues) return;
+
+    Object.values(dialogues).forEach((list) => {
+        if (!Array.isArray(list)) return;
+        list.forEach((src) => {
+            if (!dialogueAudioCache.has(src)) {
+                try {
+                    const audioEl = new Audio(src);
+                    audioEl.preload = 'auto';
+                    audioEl.load();
+                    dialogueAudioCache.set(src, audioEl);
+                } catch (e) {
+                    console.warn(`[Audio] Failed to preload dialogue "${src}":`, e);
+                }
+            }
+        });
+    });
+}
+
+// Start preloading dialogues immediately on script evaluation
+preloadDialogueAudios();
+
 function playFeedbackVoice(type) {
     if (!state.soundEnabled) return;
 
@@ -138,30 +206,48 @@ function playFeedbackVoice(type) {
     if (Array.isArray(dialogueList) && dialogueList.length > 0) {
         stopSpeechFeedback();
         const selectedAudioSrc = randomItem(dialogueList);
-        const audioEl = new Audio(selectedAudioSrc);
-        audioEl.volume = type === 'menuDialogue'
-            ? (GAME_CONFIG.audio.menuDialogueVolume ?? 0.7)
-            : 1.0;
-        currentDialogueAudio = audioEl;
+        let audioEl = dialogueAudioCache.get(selectedAudioSrc);
 
-        audioEl.addEventListener('ended', () => {
-            if (currentDialogueAudio === audioEl) {
-                currentDialogueAudio = null;
-            }
-        });
+        if (!audioEl) {
+            try {
+                audioEl = new Audio(selectedAudioSrc);
+                audioEl.preload = 'auto';
+                audioEl.load();
+                dialogueAudioCache.set(selectedAudioSrc, audioEl);
+            } catch (_) {}
+        }
 
-        const playPromise = audioEl.play();
-        if (playPromise !== undefined) {
-            playPromise.catch((err) => {
-                // Audio file failed to play or does not exist, fallback to TTS
-                console.warn(`[Audio] Failed to play dialogue clip "${selectedAudioSrc}", falling back to TTS:`, err);
+        if (audioEl) {
+            try {
+                audioEl.currentTime = 0;
+            } catch (_) {}
+
+            audioEl.volume = type === 'menuDialogue'
+                ? (GAME_CONFIG.audio.menuDialogueVolume ?? 0.7)
+                : 1.0;
+            currentDialogueAudio = audioEl;
+
+            const onEnded = () => {
                 if (currentDialogueAudio === audioEl) {
                     currentDialogueAudio = null;
                 }
-                playFeedbackTts(type);
-            });
+                audioEl.removeEventListener('ended', onEnded);
+            };
+            audioEl.addEventListener('ended', onEnded);
+
+            const playPromise = audioEl.play();
+            if (playPromise !== undefined) {
+                playPromise.catch((err) => {
+                    // Audio file failed to play or does not exist, fallback to TTS
+                    console.warn(`[Audio] Failed to play dialogue clip "${selectedAudioSrc}", falling back to TTS:`, err);
+                    if (currentDialogueAudio === audioEl) {
+                        currentDialogueAudio = null;
+                    }
+                    playFeedbackTts(type);
+                });
+            }
+            return;
         }
-        return;
     }
 
     // Fallback: TTS
@@ -273,10 +359,12 @@ class AudioEngine {
             this.bgMusic.volume = GAME_CONFIG.audio.bgMusicVolume;
             this.bgMusic.playbackRate = GAME_CONFIG.audio.bgMusicPlaybackRate;
             this.bgMusic.preload = 'auto';
+            this.bgMusic.load();
 
             this.levelCompleteAudio = new Audio(GAME_CONFIG.audio.levelComplete);
             this.levelCompleteAudio.volume = GAME_CONFIG.audio.levelCompleteVolume;
             this.levelCompleteAudio.preload = 'auto';
+            this.levelCompleteAudio.load();
         } catch (e) {
             console.log('Audio elements could not be initialized:', e);
         }
@@ -880,6 +968,7 @@ function handleBalloonTap(option, wrapper, color) {
         if (wrapper.dataset.resolved === 'true') return;
         wrapper.dataset.resolved = 'true';
         targetEl.dataset.resolved = 'true';
+        stopSpeakerGlow();
         clearTimeout(maskShakeTimer);
         targetEl.classList.remove('is-masked', 'is-wrong');
         targetEl.classList.add('is-revealing');
@@ -986,6 +1075,7 @@ function resetProgress() {
 }
 
 function showCelebration() {
+    stopSpeakerGlow();
     fx.spawnConfetti();
     audio.playSuccess();
     audio.playLevelComplete();
@@ -1216,7 +1306,9 @@ function setupEventListeners() {
         audio.init();
         document.getElementById('target-card').classList.add('scale-110');
         setTimeout(() => document.getElementById('target-card').classList.remove('scale-110'), 200);
+        stopSpeakerGlow();
         announceQuestion(true);
+        scheduleSpeakerGlow(4000);
     };
     document.getElementById('btn-speaker').addEventListener('click', replayAnnouncement);
     document.getElementById('announcement-speaker').addEventListener('click', replayAnnouncement);
@@ -1224,6 +1316,7 @@ function setupEventListeners() {
     // Celebration Next Round / Next Level
     document.getElementById('btn-next-round').addEventListener('click', (e) => {
         stopSpeechFeedback();
+        stopSpeakerGlow();
         audio.stopLevelComplete();
         state.isPlaying = true;
         document.getElementById('modal-celebration').classList.add('hidden');
@@ -1276,6 +1369,7 @@ function setupEventListeners() {
 
     document.getElementById('btn-home-return').addEventListener('click', () => {
         stopSpeechFeedback();
+        stopSpeakerGlow();
         state.isPlaying = false;
         setSparkyMood('idle');
         gameAnalytics.resetRunId();
@@ -1286,6 +1380,7 @@ function setupEventListeners() {
 }
 
 function openLevelsScreen() {
+    stopSpeakerGlow();
     renderLevelSelect();
     const el = document.getElementById('screen-levels');
     el.classList.remove('screen-exiting', 'hidden');
@@ -1309,6 +1404,7 @@ function closeLevelsScreen(onClosed) {
 }
 
 function openAlbumScreen() {
+    stopSpeakerGlow();
     renderStickerAlbum();
     const el = document.getElementById('modal-album');
     el.classList.remove('screen-exiting', 'hidden');
@@ -1327,6 +1423,7 @@ function closeAlbumScreen(onClosed) {
 
 function openSettingsModal() {
     stopSpeechFeedback();
+    stopSpeakerGlow();
     setSparkyMood('idle');
     const el = document.getElementById('modal-settings');
     el.classList.remove('modal-exiting', 'hidden');
@@ -1350,7 +1447,10 @@ function warmUpAudioAndSpeech() {
     // 1. Initialize Web Audio Context (creates or resumes on first user touch/pointer)
     audio.init();
 
-    // 2. Preload and warm up browser SpeechSynthesis voices & engine
+    // 2. Preload and buffer Sparky dialogue audio clips for instant playback
+    preloadDialogueAudios();
+
+    // 3. Preload and warm up browser SpeechSynthesis voices & engine
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
         try {
             window.speechSynthesis.getVoices();
@@ -1381,6 +1481,9 @@ window.addEventListener('load', () => {
     }
 
     setupEventListeners();
+
+    // Attempt immediate audio startup (works in WebViews with mediaPlaybackRequiresUserAction=false or allowed browser sessions)
+    warmUpAudioAndSpeech();
 
     // Pre-fetch voices if speech synthesis is available
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
